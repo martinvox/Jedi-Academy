@@ -49,11 +49,14 @@ var plane_normal := PackedVector3Array()
 var plane_dist := PackedFloat32Array()
 var plane_surface_flags := PackedInt32Array()
 
-var _grid: Dictionary = {}     # Vector2i -> PackedInt32Array of brush indices
+var _grid: Dictionary = {}     # Vector2i -> PackedInt32Array of world (model 0) brushes
+var _dynamic := PackedInt32Array()  # brushes of brush entities, always tested
 var _stamp := PackedInt32Array()
 var _stamp_id := 0
-## brushes of these bsp models are skipped (e.g. an open door, a trigger)
+## brushes of these bsp models are skipped (e.g. a disabled trigger)
 var disabled_models: Dictionary = {}
+## bsp model -> current origin offset (brush entities: "origin" key + movement)
+var model_offset: Dictionary = {}
 
 
 ## Builds from all brushes of the given bsp models (default: every model).
@@ -179,7 +182,11 @@ func _add_facet(a: Vector3, b: Vector3, c: Vector3, hint: Vector3, contents: int
 
 func _build_grid() -> void:
 	_grid.clear()
+	_dynamic.clear()
 	for i in brush_contents.size():
+		if brush_model[i] != 0:
+			_dynamic.append(i)
+			continue
 		var c0 := _cell(brush_mins[i])
 		var c1 := _cell(brush_maxs[i])
 		for x in range(c0.x, c1.x + 1):
@@ -224,17 +231,14 @@ func trace(start: Vector3, end: Vector3, mins: Vector3, maxs: Vector3, mask: int
 				if _stamp[bi] == _stamp_id:
 					continue
 				_stamp[bi] = _stamp_id
-				if brush_contents[bi] & mask == 0 or disabled_models.has(brush_model[bi]):
-					continue
-				if bmin.x > brush_maxs[bi].x or bmin.y > brush_maxs[bi].y or bmin.z > brush_maxs[bi].z \
-						or bmax.x < brush_mins[bi].x or bmax.y < brush_mins[bi].y or bmax.z < brush_mins[bi].z:
-					continue
-				if s == e:
-					_test_box_in_brush(tr, bi, s, size_min, size_max)
-				else:
-					_trace_through_brush(tr, bi, s, e, size_min, size_max, point)
+				_trace_brush(tr, bi, s, e, bmin, bmax, size_min, size_max, point, mask, Vector3.ZERO)
 				if tr.allsolid:
 					break
+	for bi in _dynamic:
+		if tr.allsolid:
+			break
+		var off: Vector3 = model_offset.get(brush_model[bi], Vector3.ZERO)
+		_trace_brush(tr, bi, s - off, e - off, bmin - off, bmax - off, size_min, size_max, point, mask, off)
 	if tr.fraction == 1.0:
 		tr.endpos = end
 	else:
@@ -242,28 +246,81 @@ func trace(start: Vector3, end: Vector3, mins: Vector3, maxs: Vector3, mask: int
 	return tr
 
 
+func _trace_brush(tr: Trace, bi: int, s: Vector3, e: Vector3, bmin: Vector3, bmax: Vector3,
+		size_min: Vector3, size_max: Vector3, point: bool, mask: int, _off: Vector3) -> void:
+	if brush_contents[bi] & mask == 0 or disabled_models.has(brush_model[bi]):
+		return
+	if bmin.x > brush_maxs[bi].x or bmin.y > brush_maxs[bi].y or bmin.z > brush_maxs[bi].z \
+			or bmax.x < brush_mins[bi].x or bmax.y < brush_mins[bi].y or bmax.z < brush_mins[bi].z:
+		return
+	if s == e:
+		_test_box_in_brush(tr, bi, s, size_min, size_max)
+	else:
+		_trace_through_brush(tr, bi, s, e, size_min, size_max, point)
+
+
 ## Contents of all brushes containing `p` (CM_PointContents).
 func point_contents(p: Vector3, mask: int = -1) -> int:
 	var contents := 0
 	var cell = _grid.get(_cell(p))
-	if cell == null:
-		return 0
-	for bi in cell:
-		if brush_contents[bi] & mask == 0 or disabled_models.has(brush_model[bi]):
-			continue
-		var mn := brush_mins[bi]
-		var mx := brush_maxs[bi]
-		if p.x < mn.x or p.y < mn.y or p.z < mn.z or p.x > mx.x or p.y > mx.y or p.z > mx.z:
-			continue
-		var inside := true
-		var fp := brush_first_plane[bi]
-		for i in range(fp, fp + brush_num_planes[bi]):
-			if plane_normal[i].dot(p) - plane_dist[i] > 0.0:
-				inside = false
-				break
-		if inside:
+	if cell != null:
+		for bi in cell:
+			if _point_in_brush(bi, p, mask):
+				contents |= brush_contents[bi]
+	for bi in _dynamic:
+		if _point_in_brush(bi, p - model_offset.get(brush_model[bi], Vector3.ZERO), mask):
 			contents |= brush_contents[bi]
 	return contents
+
+
+func _point_in_brush(bi: int, p: Vector3, mask: int) -> bool:
+	if brush_contents[bi] & mask == 0 or disabled_models.has(brush_model[bi]):
+		return false
+	var mn := brush_mins[bi]
+	var mx := brush_maxs[bi]
+	if p.x < mn.x or p.y < mn.y or p.z < mn.z or p.x > mx.x or p.y > mx.y or p.z > mx.z:
+		return false
+	var fp := brush_first_plane[bi]
+	for i in range(fp, fp + brush_num_planes[bi]):
+		if plane_normal[i].dot(p) - plane_dist[i] > 0.0:
+			return false
+	return true
+
+
+## True if a box at `origin` overlaps any brush of bsp model `model`
+## (the exact test G_TouchTriggers / G_MoverPush do per entity).
+func box_touches_model(origin: Vector3, mins: Vector3, maxs: Vector3, model: int) -> bool:
+	var off: Vector3 = model_offset.get(model, Vector3.ZERO)
+	var center := (mins + maxs) * 0.5
+	var size_min := mins - center
+	var size_max := maxs - center
+	var s := origin + center - off
+	var bmin := s + size_min
+	var bmax := s + size_max
+	for bi in (_dynamic if model != 0 else range(brush_contents.size())):
+		if brush_model[bi] != model:
+			continue
+		if bmin.x > brush_maxs[bi].x or bmin.y > brush_maxs[bi].y or bmin.z > brush_maxs[bi].z \
+				or bmax.x < brush_mins[bi].x or bmax.y < brush_mins[bi].y or bmax.z < brush_mins[bi].z:
+			continue
+		var tr := Trace.new()
+		_test_box_in_brush(tr, bi, s, size_min, size_max)
+		if tr.startsolid:
+			return true
+	return false
+
+
+## Local-space bounds of a bsp model's brushes (absmin/absmax before offset).
+func model_bounds(model: int) -> AABB:
+	var have := false
+	var box := AABB()
+	for bi in brush_contents.size():
+		if brush_model[bi] != model:
+			continue
+		var b := AABB(brush_mins[bi], brush_maxs[bi] - brush_mins[bi])
+		box = b if not have else box.merge(b)
+		have = true
+	return box
 
 
 static func _offset_for(n: Vector3, size_min: Vector3, size_max: Vector3) -> float:

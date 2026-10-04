@@ -73,6 +73,12 @@ var tracemask := JACollisionWorld.MASK_PLAYERSOLID
 var noclip := false
 ## events from the last move, for sounds/animation later
 var events := PackedStringArray()
+## bsp model the player stands on (-1: none), like groundEntityNum
+var ground_model := -1
+## bsp models bumped during the last move (PM_AddTouchEnt)
+var touched_models: Array[int] = []
+var buttons := 0
+const BUTTON_USE := 4
 
 var world: JACollisionWorld
 
@@ -97,10 +103,19 @@ func _trace(start: Vector3, end: Vector3) -> JACollisionWorld.Trace:
 	return world.trace(start, end, mins, maxs, tracemask)
 
 
+func PM_AddTouchEnt(tr: JACollisionWorld.Trace) -> void:
+	if tr.brush < 0:
+		return
+	var m := world.brush_model[tr.brush]
+	if not touched_models.has(m):
+		touched_models.append(m)
+
+
 ## Pmove(): one command.
 func pmove(cmd: UserCmd) -> void:
 	_cmd = cmd
 	events.clear()
+	touched_models.clear()
 	var msec := clampi(cmd.msec, 1, 200)
 	_frametime = msec * 0.001
 	_previous_origin = origin
@@ -233,6 +248,7 @@ func PM_CheckJump() -> bool:
 	_ground_plane = false
 	_walking = false
 	on_ground = false
+	ground_model = -1
 	events.append("jump")
 	return true
 
@@ -410,23 +426,27 @@ func PM_GroundTrace() -> void:
 	if tr.allsolid:
 		# PM_CorrectAllSolid
 		on_ground = false
+		ground_model = -1
 		_ground_plane = false
 		_walking = false
 		return
 	if tr.fraction == 1.0 or gravity <= 0.0:
 		# PM_GroundTraceMissed (fall-to-death prediction is NPC-only)
 		on_ground = false
+		ground_model = -1
 		_ground_plane = false
 		_walking = false
 		return
 	# thrown off the ground or leaving it fast
 	if velocity.z > 100.0 and velocity.dot(tr.normal) > 10.0:
 		on_ground = false
+		ground_model = -1
 		_ground_plane = false
 		_walking = false
 		return
 	if tr.normal.z < MIN_WALK_NORMAL:
 		on_ground = false
+		ground_model = -1
 		_ground_plane = true
 		_walking = false
 		return
@@ -444,7 +464,9 @@ func PM_GroundTrace() -> void:
 		if _cmd.forwardmove == 0 and _cmd.rightmove == 0:
 			velocity.z = 0.0
 	on_ground = true
+	ground_model = world.brush_model[tr.brush] if tr.brush >= 0 else 0
 	pm_flags &= ~PMF_JUMPING
+	PM_AddTouchEnt(tr)
 
 
 ## PM_SlideMove (bg_slidemove.cpp). Returns true if the velocity was clipped.
@@ -476,6 +498,7 @@ func PM_SlideMove(grav_mod: float) -> bool:
 			origin = tr.endpos
 		if tr.fraction == 1.0:
 			break
+		PM_AddTouchEnt(tr)
 		time_left -= time_left * tr.fraction
 		if planes.size() >= MAX_CLIP_PLANES:
 			velocity = Vector3.ZERO
