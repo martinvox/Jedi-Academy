@@ -42,7 +42,7 @@ func material_count() -> int:
 
 
 func _build(shader_name: String, mode: int) -> Material:
-	var def := shaders.get_def(shader_name) if shaders != null else null
+	var def: Q3ShaderLibrary.Def = shaders.get_def(shader_name) if shaders != null else null
 	var tex_path := ""
 	var cull := "front"
 	var blend := Q3ShaderLibrary.Blend.OPAQUE

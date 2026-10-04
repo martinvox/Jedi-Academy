@@ -34,7 +34,7 @@ const SIZE_DRAWVERT := 80    # xyz[3], st[2], lightmap[4][2], normal[3], byte co
 const SIZE_FOG := 72         # char[64], int brushNum, int visibleSide
 const SIZE_SURFACE := 148
 
-class Shader:
+class ShaderInfo:
 	var name: String
 	var surface_flags: int
 	var content_flags: int
@@ -68,7 +68,7 @@ class Surface:
 	var patch_width: int
 	var patch_height: int
 
-var shaders: Array[Shader] = []
+var shaders: Array[ShaderInfo] = []
 var planes_normal: PackedVector3Array
 var planes_dist: PackedFloat32Array
 var models: Array[Model] = []
@@ -160,7 +160,7 @@ static func _cstr(d: PackedByteArray, o: int, n: int) -> String:
 func _parse_shaders(d: PackedByteArray, o: int, l: int) -> void:
 	for i in l / SIZE_SHADER:
 		var b := o + i * SIZE_SHADER
-		var s := Shader.new()
+		var s := ShaderInfo.new()
 		s.name = _cstr(d, b, 64)
 		s.surface_flags = d.decode_s32(b + 64)
 		s.content_flags = d.decode_s32(b + 68)

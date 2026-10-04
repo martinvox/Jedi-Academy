@@ -66,6 +66,7 @@ func build(bsp: RBSPFile, map_name: String = "map") -> Node3D:
 	collision.name = "Collision"
 	root.add_child(collision)
 	_build_brush_collision(bsp, bsp.models[0], collision, false)
+	_build_patch_collision(bsp, bsp.models[0], collision, false)
 
 	var ents := Node3D.new()
 	ents.name = "Entities"
@@ -103,7 +104,7 @@ func _surface_drawable(bsp: RBSPFile, s: RBSPFile.Surface) -> bool:
 	var sh := bsp.shaders[s.shader_num]
 	if sh.surface_flags & SURF_NODRAW:
 		return false
-	var def := shaders.get_def(sh.name) if shaders != null else null
+	var def: Q3ShaderLibrary.Def = shaders.get_def(sh.name) if shaders != null else null
 	if def != null and (def.has_parm("nodraw") or def.has_parm("fog")):
 		return false
 	if sh.surface_flags & SURF_SKY or (def != null and def.has_parm("sky")):
@@ -242,7 +243,7 @@ func _build_brush_collision(bsp: RBSPFile, model: RBSPFile.Model, parent: Node3D
 	var bodies := {}
 	for bi in range(model.first_brush, model.first_brush + model.num_brushes):
 		var br := bsp.brushes[bi]
-		var contents := bsp.shaders[br.shader_num].content_flags if br.shader_num >= 0 and br.shader_num < bsp.shaders.size() else CONTENTS_SOLID
+		var contents: int = bsp.shaders[br.shader_num].content_flags if br.shader_num >= 0 and br.shader_num < bsp.shaders.size() else CONTENTS_SOLID
 		var kind := ""
 		var layer := 0
 		if as_area or contents & CONTENTS_TRIGGER:
@@ -281,12 +282,47 @@ func _build_brush_collision(bsp: RBSPFile, model: RBSPFile.Model, parent: Node3D
 		stats["brushes"] += 1
 
 
+## Curved surfaces have no brushes; the original builds collision from the
+## patch grid at load time (CM_GeneratePatchCollide). We use the tessellated
+## triangles as a concave shape instead.
+func _build_patch_collision(bsp: RBSPFile, model: RBSPFile.Model, parent: Node3D, movable: bool) -> void:
+	var faces := PackedVector3Array()
+	for si in range(model.first_surface, model.first_surface + model.num_surfaces):
+		var s := bsp.surfaces[si]
+		if s.surface_type != RBSPFile.SurfaceType.PATCH:
+			continue
+		var sh := bsp.shaders[s.shader_num]
+		if not (sh.content_flags & (CONTENTS_SOLID | CONTENTS_PLAYERCLIP)):
+			continue
+		var def: Q3ShaderLibrary.Def = shaders.get_def(sh.name) if shaders != null else null
+		if def != null and def.has_parm("nonsolid"):
+			continue
+		var p := BezierPatch.new()
+		p.tessellate(bsp, s, maxi(2, patch_level / 2))
+		for i in p.tris:
+			faces.append(JACoords.pos(p.xyz[i]))
+	if faces.is_empty():
+		return
+	var body: CollisionObject3D = AnimatableBody3D.new() if movable else StaticBody3D.new()
+	body.name = "Patches"
+	body.collision_layer = LAYER_SOLID
+	body.collision_mask = 0
+	var shape := ConcavePolygonShape3D.new()
+	shape.backface_collision = true
+	shape.set_faces(faces)
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	body.add_child(cs)
+	parent.add_child(body)
+	stats["patch_collision_triangles"] = stats.get("patch_collision_triangles", 0) + faces.size() / 3
+
+
 func _brush_points(bsp: RBSPFile, br: RBSPFile.Brush) -> PackedVector3Array:
 	var planes: Array[Plane] = []
 	for side in range(br.first_side, br.first_side + br.num_sides):
 		var pi := bsp.brushside_plane[side]
 		planes.append(JACoords.plane(bsp.planes_normal[pi], bsp.planes_dist[pi]))
-	return Geometry3D.compute_convex_mesh_points_from_planes(planes)
+	return Geometry3D.compute_convex_mesh_points(planes)
 
 
 func _build_entity(bsp: RBSPFile, index: int, grid: Vector2i) -> Node3D:
@@ -312,6 +348,8 @@ func _build_entity(bsp: RBSPFile, index: int, grid: Vector2i) -> Node3D:
 	var is_trigger := classname.begins_with("trigger_")
 	var movable := classname.begins_with("func_") and classname != "func_group" and classname != "func_static"
 	_build_brush_collision(bsp, bsp.models[mi], node, is_trigger, movable)
+	if not is_trigger:
+		_build_patch_collision(bsp, bsp.models[mi], node, movable)
 	return node
 
 

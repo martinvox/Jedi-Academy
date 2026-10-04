@@ -60,7 +60,7 @@ class Def:
 		var s := diffuse_stage()
 		if s == null:
 			return Blend.OPAQUE
-		return blend_from(s.blend_src, s.blend_dst)
+		return Q3ShaderLibrary.blend_from(s.blend_src, s.blend_dst)
 
 	func alpha_test() -> int:
 		var s := diffuse_stage()
