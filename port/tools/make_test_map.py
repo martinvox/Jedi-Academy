@@ -83,15 +83,15 @@ class Bsp:
         lumps[7] = b"".join(struct.pack("<6f4i", *m[0], *m[1], *m[2:]) for m in self.models)
         lumps[8] = b"".join(struct.pack("<3i", *b) for b in self.brushes)
         lumps[9] = b"".join(struct.pack("<3i", *s) for s in self.sides)
-        vb = b""
+        vb = bytearray()
         for v in self.verts:
             vb += struct.pack("<3f2f", *v["xyz"], *v["st"])
             vb += struct.pack("<8f", *v["lm"], 0, 0, 0, 0, 0, 0)
             vb += struct.pack("<3f", *v["n"])
             vb += bytes(v["c"]) + bytes(12)
-        lumps[10] = vb
+        lumps[10] = bytes(vb)
         lumps[11] = struct.pack("<%di" % len(self.indexes), *self.indexes)
-        sb = b""
+        sb = bytearray()
         for s in self.surfaces:
             sb += struct.pack("<7i", s["shader"], -1, s["type"], s["fv"], s["nv"], s["fi"], s["ni"])
             sb += bytes([0, 255, 255, 255]) + bytes([0, 255, 255, 255])
@@ -101,7 +101,7 @@ class Bsp:
             sb += struct.pack("<3f", 0, 0, 0) + struct.pack("<9f", *([0.0] * 9))
             sb += struct.pack("<2i", s["pw"], s["ph"])
         assert len(sb) == 148 * len(self.surfaces)
-        lumps[13] = sb
+        lumps[13] = bytes(sb)
         lumps[14] = b"".join(self.lightmaps)
 
         header_size = 8 + 18 * 8
