@@ -9,7 +9,7 @@ files in `GameData/base`). No game assets are stored in this repository.
 
 | Tool | Why | Get it |
 |---|---|---|
-| **Godot 4.5.x** (standard build, not .NET) | runs the port | https://godotengine.org/download |
+| **Godot 4.7.x** (standard build, not .NET; tested with 4.7.1) | runs the port | https://godotengine.org/download |
 | **Jedi Academy** (Steam/GOG/CD) | the game data | your install, e.g. `C:/Program Files (x86)/Steam/steamapps/common/Jedi Academy/GameData` |
 | Python 3 (optional) | regenerates the test fixture | https://python.org |
 | Git | clone the repo | https://git-scm.com |

@@ -40,5 +40,6 @@ continue from here. Branch: `claude/exciting-mendel-ieutjw`.
 
 ## Session log
 
+- 2026-10-04: Switched to Godot 4.7.1 (tests and rendering re-verified).
 - 2026-10-04: Plan written. M0/M1 implemented and tested headless. Autosave script added.
   The container restarted once (OOM from a test generator, now fixed); no work was lost.
