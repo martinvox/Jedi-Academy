@@ -180,6 +180,42 @@ textures/common/trigger
 """
 
 
+def add_stress(b, count, shader_base):
+    """Adds `count` pillars (5 lightmapped quads + 1 brush each) spread over
+    `shader_base`..+50 shaders, to approximate retail map sizes for timing."""
+    shaders = [b.shader("textures/stress/s%d" % i, 0, CONTENTS_SOLID) for i in range(50)]
+    first_surface, first_brush = len(b.surfaces), len(b.brushes)
+    side = int(count ** 0.5) + 1
+    for k in range(count):
+        x0, y0 = (k % side) * 48 - side * 24, (k // side) * 48 - side * 24
+        x1, y1, z1 = x0 + 16, y0 + 16, 64 + (k % 7) * 16
+        sh = shaders[k % len(shaders)]
+        b.quad(sh, [(x0, y0, z1), (x0, y1, z1), (x1, y1, z1), (x1, y0, z1)], (0, 0, 1))
+        b.quad(sh, [(x1, y0, 0), (x1, y1, 0), (x1, y1, z1), (x1, y0, z1)], (1, 0, 0))
+        b.quad(sh, [(x0, y0, 0), (x0, y1, 0), (x0, y1, z1), (x0, y0, z1)], (-1, 0, 0))
+        b.quad(sh, [(x0, y1, 0), (x1, y1, 0), (x1, y1, z1), (x0, y1, z1)], (0, 1, 0))
+        b.quad(sh, [(x0, y0, 0), (x1, y0, 0), (x1, y0, z1), (x0, y0, z1)], (0, -1, 0))
+        b.box_brush((x0, y0, 0), (x1, y1, z1), sh)
+    return len(b.surfaces) - first_surface, len(b.brushes) - first_brush
+
+
+def build_stress(out_dir, count):
+    b = Bsp()
+    ns, nb = add_stress(b, count, 0)
+    b.models.append(((-4096, -4096, 0), (4096, 4096, 512), 0, ns, 0, nb))
+    for i in range(16):
+        b.lightmaps.append(bytes([i * 16, 128, 200]) * (128 * 128))
+    b.entities = [{"classname": "worldspawn"},
+                  {"classname": "info_player_start", "origin": "0 0 600", "angles": "30 45 0"}]
+    base = os.path.join(out_dir, "base")
+    os.makedirs(base, exist_ok=True)
+    bsp_path = os.path.join(out_dir, "stress.bsp")
+    b.write(bsp_path)
+    with zipfile.ZipFile(os.path.join(base, "stress.pk3"), "w") as z:
+        z.write(bsp_path, "maps/stress.bsp")
+    os.remove(bsp_path)
+
+
 def build(out_dir):
     b = Bsp()
     sh_floor = b.shader("textures/test/floor", 0, CONTENTS_SOLID)
@@ -283,4 +319,9 @@ def build(out_dir):
 
 
 if __name__ == "__main__":
-    build(sys.argv[1] if len(sys.argv) > 1 else "fixtures/gamedata")
+    # make_test_map.py <out_dir> [--stress N]
+    out = sys.argv[1] if len(sys.argv) > 1 else "fixtures/gamedata"
+    if "--stress" in sys.argv:
+        build_stress(out, int(sys.argv[sys.argv.index("--stress") + 1]))
+    else:
+        build(out)
