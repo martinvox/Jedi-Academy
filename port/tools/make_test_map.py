@@ -272,6 +272,10 @@ def build(out_dir):
         z.writestr("shaders/test.shader", SHADER_SCRIPT)
         z.writestr("textures/test/floor.tga", tga(8, 8, (255, 0, 0)))
         z.writestr("Textures/Test/Wall.png", png(8, 8, (0, 0, 255)))
+        sky = {"rt": (255, 128, 0), "lf": (0, 128, 255), "bk": (128, 255, 128),
+               "ft": (255, 255, 0), "up": (200, 200, 255), "dn": (60, 40, 20)}
+        for suf, rgb in sky.items():
+            z.writestr("env/test_%s.tga" % suf, tga(4, 4, rgb))
     # Later pk3 overrides earlier ones (FS_AddGameDirectory): floor turns green.
     with zipfile.ZipFile(os.path.join(base, "assets1.pk3"), "w") as z:
         z.writestr("textures/test/floor.tga", tga(8, 8, (0, 255, 0)))
