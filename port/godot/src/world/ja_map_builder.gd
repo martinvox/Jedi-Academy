@@ -331,6 +331,7 @@ func _build_entity(bsp: RBSPFile, index: int, grid: Vector2i) -> Node3D:
 	var node := Node3D.new()
 	node.name = "%s_%d" % [_safe_name(classname), index]
 	node.set_meta("classname", classname)
+	node.set_meta("entity_index", index)
 	node.set_meta("spawn", ent)
 	if ent.has("origin"):
 		node.position = JACoords.pos(JACoords.parse_vec3(ent["origin"]))

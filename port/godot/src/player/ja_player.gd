@@ -4,7 +4,7 @@ extends Node3D
 ## and draws first/third-person views. Positions are interpolated between
 ## ticks for smooth display, like cgame prediction does.
 ##
-## Controls: WASD move, Space jump, C crouch, Shift walk, mouse look,
+## Controls: WASD move, Space jump, C crouch, Shift walk, E use, mouse look,
 ## T toggle 1st/3rd person, V noclip.
 
 ## cg_thirdPersonRange / cg_thirdPersonVertOffset defaults (cg_main.cpp)
@@ -14,6 +14,7 @@ extends Node3D
 @export var third_person := true
 
 var pm: JAPmove
+var game: JAGameWorld
 var camera: Camera3D
 var body: MeshInstance3D
 
@@ -25,10 +26,15 @@ var _prev_origin := Vector3.ZERO
 var _curr_origin := Vector3.ZERO
 var _prev_view := 0.0
 var _curr_view := 0.0
+var _tick_usec := 0.0
 
 
-func setup(world: JACollisionWorld, origin_q: Vector3, yaw_deg: float) -> void:
+func setup(world: JACollisionWorld, origin_q: Vector3, yaw_deg: float, p_game: JAGameWorld = null) -> void:
 	pm = JAPmove.new(world)
+	game = p_game
+	if game != null:
+		game.pm = pm
+		game.teleport_callback = _on_teleport
 	pm.origin = origin_q
 	_yaw = yaw_deg
 	_prev_origin = origin_q
@@ -54,6 +60,14 @@ func setup(world: JACollisionWorld, origin_q: Vector3, yaw_deg: float) -> void:
 	_update_visuals(1.0)
 
 
+func _on_teleport(origin_q: Vector3, angles: Vector3) -> void:
+	_yaw = angles.y
+	_pitch = angles.x
+	# no interpolation across a teleport (EF_TELEPORT_BIT)
+	_prev_origin = origin_q
+	_curr_origin = origin_q
+
+
 func make_current() -> void:
 	camera.make_current()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -71,6 +85,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		match event.keycode:
 			KEY_T: third_person = not third_person
 			KEY_V: pm.noclip = not pm.noclip
+			KEY_E:
+				if game != null:
+					game.player_use()
 			KEY_ESCAPE: Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
@@ -89,9 +106,16 @@ func _physics_process(delta: float) -> void:
 		cmd.rightmove = int(Input.get_axis("move_left", "move_right") * run)
 		cmd.upmove = int(Input.get_axis("move_down", "move_up") * 127)
 	cmd.viewangles = Vector3(_pitch, _yaw, 0)
+	pm.buttons = JAPmove.BUTTON_USE if camera.current and Input.is_key_pressed(KEY_E) else 0
 	_prev_origin = _curr_origin
 	_prev_view = _curr_view
+	var t0 := Time.get_ticks_usec()
+	if game != null:
+		game.run_frame(cmd.msec)   # G_RunFrame: movers push/carry the player
 	pm.pmove(cmd)
+	if game != null:
+		game.touch_triggers()      # G_TouchTriggers after Pmove
+	_tick_usec = lerpf(_tick_usec, float(Time.get_ticks_usec() - t0), 0.1)
 	_curr_origin = pm.origin
 	_curr_view = pm.viewheight
 
@@ -129,7 +153,7 @@ func _update_visuals(frac: float) -> void:
 ## Quake-space state for the HUD.
 func debug_text() -> String:
 	var hv := Vector2(pm.velocity.x, pm.velocity.y).length()
-	return "pos %.0f %.0f %.0f  speed %.0f  %s%s%s" % [pm.origin.x, pm.origin.y, pm.origin.z, hv,
+	return "pos %.0f %.0f %.0f  speed %.0f  tick %.2f ms  %s%s%s" % [pm.origin.x, pm.origin.y, pm.origin.z, hv, _tick_usec / 1000.0,
 		"ground" if pm.on_ground else "air",
 		"  crouch" if pm.pm_flags & JAPmove.PMF_DUCKED else "",
 		"  water %d" % pm.waterlevel if pm.waterlevel else ""]

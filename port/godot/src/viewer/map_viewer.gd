@@ -24,6 +24,7 @@ var shaders: Q3ShaderLibrary
 var map_root: Node3D
 var player: JAPlayer
 var collision: JACollisionWorld
+var game: JAGameWorld
 var _status_text := ""
 var _setup: Control
 var _args := {}
@@ -67,6 +68,8 @@ func _process(_delta: float) -> void:
 	if player != null and _setup == null:
 		var mode := "fly camera (F to walk)" if camera.current else ("walking" + ("  noclip" if player.pm.noclip else ""))
 		hud.text = _status_text + "\n" + mode + "  |  " + player.debug_text()
+		if game != null and game.level_time - game.message_time < 4000:
+			hud.text += "\n\n" + game.message
 
 
 func _parse_args(args: PackedStringArray) -> Dictionary:
@@ -133,14 +136,19 @@ func _load_map(name: String) -> void:
 	world_env.environment = JAEnvironment.create(vfs, shaders, builder.stats["sky_shaders"])
 	_place_camera(bsp)
 	var t3 := Time.get_ticks_msec()
-	collision = JACollisionWorld.from_bsp(bsp, shaders, solid_models(bsp))
-	print("collision world: %d brushes (%d ms)" % [collision.brush_count(), Time.get_ticks_msec() - t3])
+	var nodes := {}
+	for n in map_root.get_node("Entities").get_children():
+		nodes[n.get_meta("entity_index")] = n
+	game = JAGameWorld.new()
+	game.setup(bsp, shaders, nodes)
+	collision = game.world
+	print("collision world: %d brushes, %d trigger brushes (%d ms)" % [collision.brush_count(), game.triggers.brush_count(), Time.get_ticks_msec() - t3])
 	_spawn_player(bsp)
 	if _args.has("view"):
 		_set_fly_mode(true)
 
 	var s := builder.stats
-	_status_text = "%s  |  %d tris, %d materials, %d brushes, %d entities, %d missing textures, parse %d ms, build %d ms\nWASD move, Space jump, C crouch, Shift walk, T 1st/3rd person, V noclip, F fly camera, Tab maps, Esc mouse" % [
+	_status_text = "%s  |  %d tris, %d materials, %d brushes, %d entities, %d missing textures, parse %d ms, build %d ms\nWASD move, Space jump, C crouch, Shift walk, E use, T 1st/3rd person, V noclip, F fly camera, Tab maps, Esc mouse" % [
 		path, s["triangles"], s["materials"], s["brushes"], s["entities"], s["missing_textures"], t1 - t0, t2 - t1]
 	hud.text = _status_text
 	print(_status_text)
@@ -156,18 +164,6 @@ func _load_map(name: String) -> void:
 		print("screenshot saved to ", _args["screenshot"])
 	if _args.has("quit-after-load") or _args.has("screenshot"):
 		get_tree().quit(0)
-
-
-## bsp models the player collides with: the world and every brush entity
-## except triggers (doors start closed until movers are ported).
-static func solid_models(bsp: RBSPFile) -> Array:
-	var models := [0]
-	for ent in bsp.entities:
-		var m: String = ent.get("model", "")
-		var cls: String = ent.get("classname", "")
-		if m.begins_with("*") and not cls.begins_with("trigger_"):
-			models.append(m.substr(1).to_int())
-	return models
 
 
 func _spawn_point(bsp: RBSPFile) -> Array:
@@ -187,7 +183,7 @@ func _spawn_player(bsp: RBSPFile) -> void:
 	add_child(player)
 	var sp := _spawn_point(bsp)
 	# SelectSpawnPoint raises the origin 9 units so the box does not start in the floor
-	player.setup(collision, sp[0] + Vector3(0, 0, 9), sp[1])
+	player.setup(collision, sp[0] + Vector3(0, 0, 9), sp[1], game)
 	player.make_current()
 
 

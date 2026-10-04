@@ -284,6 +284,21 @@ def build(out_dir):
     b.box_brush((-64, -64, 0), (64, 64, 64), sh_trig)
     b.models.append(((-64, -64, 0), (64, 64, 64), len(b.surfaces), 0, b0, 1))
 
+    # --- model 3: trigger_teleport, model 4: trigger_push
+    b0 = len(b.brushes)
+    b.box_brush((180, -100, 0), (240, -40, 64), sh_trig)
+    b.models.append(((180, -100, 0), (240, -40, 64), len(b.surfaces), 0, b0, 1))
+    b0 = len(b.brushes)
+    b.box_brush((-120, -250, 0), (-60, -200, 32), sh_trig)
+    b.models.append(((-120, -250, 0), (-60, -200, 32), len(b.surfaces), 0, b0, 1))
+
+    # --- model 5: touch-opened func_door (no targetname -> spawns its own trigger)
+    s0 = len(b.surfaces)
+    b.quad(sh_wall, [(-40, 200, 0), (-40, 256, 0), (-40, 256, 96), (-40, 200, 96)], (-1, 0, 0))
+    b0 = len(b.brushes)
+    b.box_brush((-40, 200, 0), (-24, 256, 96), sh_wall)
+    b.models.append(((-40, 200, 0), (-24, 256, 96), s0, 1, b0, 1))
+
     # lightmap page: horizontal gradient
     lm = bytearray()
     for y in range(128):
@@ -295,10 +310,15 @@ def build(out_dir):
         {"classname": "worldspawn", "message": "Test map", "music": "music/test"},
         {"classname": "info_player_start", "origin": "0 -128 24", "angle": "90"},
         {"classname": "func_door", "model": "*1", "angle": "90", "targetname": "door1"},
-        {"classname": "trigger_multiple", "model": "*2", "target": "door1"},
+        {"classname": "trigger_multiple", "model": "*2", "target": "door1", "wait": "4"},
         {"classname": "light", "origin": "0 0 200", "light": "300"},
         {"classname": "misc_model_static", "origin": "64 64 0", "angles": "0 45 0",
          "model": "models/map_objects/test/crate.md3"},
+        {"classname": "trigger_teleport", "model": "*3", "target": "tele_dest"},
+        {"classname": "misc_teleporter_dest", "targetname": "tele_dest", "origin": "-100 100 30", "angle": "180"},
+        {"classname": "trigger_push", "model": "*4", "target": "push_apex"},
+        {"classname": "target_position", "targetname": "push_apex", "origin": "-90 -225 200"},
+        {"classname": "func_door", "model": "*5", "angle": "0", "wait": "1"},
     ]
 
     base = os.path.join(out_dir, "base")

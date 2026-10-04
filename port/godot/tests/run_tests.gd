@@ -28,6 +28,7 @@ func _run() -> void:
 		await test_builder(vfs, lib, bsp)
 		test_collision(lib, bsp)
 		test_pmove(lib, bsp)
+		test_game(lib, bsp)
 	print("\n%d checks, %d failures" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -63,10 +64,10 @@ func test_rbsp(vfs: JAVfs) -> RBSPFile:
 	if err != OK:
 		return null
 	_check(bsp.shaders.size() == 7, "shader lump")
-	_check(bsp.models.size() == 3, "models lump")
-	_check(bsp.brushes.size() == 12, "brush lump")
+	_check(bsp.models.size() == 6, "models lump")
+	_check(bsp.brushes.size() == 15, "brush lump")
 	_check(bsp.lightmaps.size() == 1, "lightmap lump")
-	_check(bsp.entities.size() == 6, "entity lump")
+	_check(bsp.entities.size() == 11, "entity lump")
 	_check(bsp.entities[0].get("message") == "Test map", "worldspawn keys")
 	_check(bsp.surfaces[6].surface_type == RBSPFile.SurfaceType.PATCH and bsp.surfaces[6].patch_width == 3, "patch surface")
 	_check(bsp.surfaces[7].lightmap_num[0] == RBSPFile.LIGHTMAP_BY_VERTEX, "vertex-lit soup")
@@ -126,7 +127,7 @@ func test_builder(vfs: JAVfs, lib: Q3ShaderLibrary, bsp: RBSPFile) -> void:
 	_check(world.get_child_count() >= 3, "world meshes grouped by material")
 	_check(not world.has_node("textures_test_sky"), "sky surface not drawn")
 	_check(builder.stats["sky_shaders"].has("textures/test/sky"), "sky shader recorded")
-	_check(builder.stats["brushes"] == 12, "all brushes converted")
+	_check(builder.stats["brushes"] == 15, "all brushes converted")
 
 	# triangle winding of every output mesh agrees with its normals
 	var wrong := 0
@@ -290,3 +291,80 @@ func test_pmove(lib: Q3ShaderLibrary, bsp: RBSPFile) -> void:
 	pm.velocity = Vector3.ZERO
 	_sim(pm, 1500)
 	_check(pm.on_ground and pm.origin.z > 24.125 + 10.0, "stands on the curved patch (z=%.2f)" % pm.origin.z)
+
+
+func _frames(g: JAGameWorld, ms: int, fwd: int = 0, yaw: float = 0.0) -> void:
+	var t := 0
+	while t < ms:
+		var cmd := JAPmove.UserCmd.new()
+		cmd.msec = 16
+		cmd.forwardmove = fwd
+		cmd.viewangles = Vector3(0, yaw, 0)
+		g.run_frame(cmd.msec)
+		g.pm.pmove(cmd)
+		g.touch_triggers()
+		t += 16
+
+
+func test_game(lib: Q3ShaderLibrary, bsp: RBSPFile) -> void:
+	var g := JAGameWorld.new()
+	g.setup(bsp, lib, {})
+	var pm := JAPmove.new(g.world)
+	g.pm = pm
+	var door := g.entity_by_name("door1")
+	_check(door != null and door.is_mover and door.pos2.is_equal_approx(Vector3(0, 8, 0)), "func_door pos2 = movedir * (size - lip)")
+	_check(g.ents.any(func(e): return e.classname == "trigger_door"), "touch door spawned its trigger")
+
+	# stand clear of everything and let the world settle
+	pm.origin = Vector3(-200, -60, 24.125)
+	_frames(g, 300)
+	_check(door.state == JAGameWorld.MoverState.POS1, "targeted door stays closed")
+
+	# trigger_multiple *2 targets door1
+	pm.origin = Vector3(-40, -40, 24.125)
+	_frames(g, 32)
+	_check(door.state == JAGameWorld.MoverState.ONE_TO_TWO, "trigger_multiple opens the door")
+	pm.origin = Vector3(-200, -60, 24.125)
+	_frames(g, 1000)
+	_check(door.state == JAGameWorld.MoverState.POS2 and door.origin.is_equal_approx(door.pos2), "door reaches open position")
+	_check(g.world.model_offset[door.model].is_equal_approx(door.pos2), "door collision moved with it")
+	_frames(g, 2500)
+	_check(door.state == JAGameWorld.MoverState.POS1, "door returns after wait")
+
+	# door pushes the player standing in its way
+	pm.origin = Vector3(4, 8 + 16 + 0.5, 24.125)
+	pm.velocity = Vector3.ZERO
+	g.use(door, null, pm)
+	_frames(g, 1000)
+	_check(pm.origin.y > 8 + 8 + 16 - 0.1, "opening door pushes the player (y=%.2f)" % pm.origin.y)
+
+	# touch door opens when approached
+	var tdoor: JAGameWorld.GEnt = g.ents.filter(func(e): return e.classname == "func_door" and e.targetname.is_empty())[0]
+	pm.origin = Vector3(-120, 228, 24.125)
+	pm.velocity = Vector3.ZERO
+	_frames(g, 48)
+	_check(tdoor.state == JAGameWorld.MoverState.ONE_TO_TWO or tdoor.state == JAGameWorld.MoverState.POS2, "touch door opens on approach")
+
+	# teleporter
+	pm.origin = Vector3(210, -70, 24.125)
+	pm.velocity = Vector3(100, 0, 0)
+	var teleported := []
+	g.teleport_callback = func(o, a): teleported.append(a)
+	_frames(g, 16)
+	_check(pm.origin.distance_to(Vector3(-100, 100, 31)) < 1.0 or (teleported.size() == 1 and absf(pm.origin.x + 100) < 2.0), "trigger_teleport moves the player (%s)" % pm.origin)
+	_check(teleported.size() == 1 and teleported[0].y == 180.0, "teleport sets view angles")
+
+	# jump pad
+	pm.origin = Vector3(-90, -225, 24.125)
+	pm.velocity = Vector3.ZERO
+	var apex := 0.0
+	var t := 0
+	while t < 1500:
+		var cmd := JAPmove.UserCmd.new()
+		cmd.msec = 16
+		g.run_frame(16)
+		pm.pmove(cmd)
+		g.touch_triggers()
+		apex = maxf(apex, pm.origin.z)
+		t += 16
+	_check(apex > 190.0 and apex < 230.0, "trigger_push throws the player to the target apex (%.1f)" % apex)

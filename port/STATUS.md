@@ -18,6 +18,12 @@ continue from here. Branch: `claude/exciting-mendel-ieutjw`.
       patches as thin facet brushes. `JAPmove` ports walk/air/water/ladder movement, friction, acceleration,
       PM_SlideMove/PM_StepSlideMove (g_stepSlideFix 1), the ground trace, ducking, the normal jump and landing timers.
       `JAPlayer` adds input, a fixed tick with interpolation, and 1st/3rd-person cameras. Covered by 22 movement/collision tests.
+- [x] **Map entities**: `JAGameWorld` ports func_door (teams, auto trigger, wait/toggle/locked/start_open/delay, reversing
+      when blocked), func_plat, func_button, func_bobbing, func_rotating (visual), func_usable, trigger_multiple/once
+      (wait, delay, USE_BUTTON, FACING), trigger_push (arc/linear/relative/conveyor), trigger_teleport, target_relay/
+      delay/push/teleporter/print/activate/deactivate, plus movers carrying and pushing the player. E is use.
+      Covered by 12 tests (84 total).
+- [x] Verified on retail data by the user: t1_sour loads with 0 missing textures and `flipped_surfaces: 0`, and walking feels right.
 - [x] Performance: a retail-sized synthetic map (50k surfaces, 10k brushes) parses and builds in about 2 s in GDScript
 
 ## Needs checking on real game data (cannot be done in the cloud session)
@@ -35,8 +41,8 @@ continue from here. Branch: `claude/exciting-mendel-ieutjw`.
 2. Shader improvements: multi-stage blending (lightmap + detail + glow), `rgbGen`/`alphaGen` waves,
    `tcMod rotate/turb/stretch`, `deformVertexes wave/autosprite`, animMap animation, environment maps.
 3. **M2 movement, remaining**: force jump (hold jump, `forceJumpHeight`/`forceJumpStrength`), flips, wall runs,
-   rolls, water jump, falling damage, movers (doors), and triggers (`trigger_push`, `trigger_teleport`).
-   Compare the feel against OpenJK side by side.
+   rolls, water jump, falling damage. Still missing on the entity side: func_train/path_corner, rotating collision,
+   func_breakable, ICARUS scripts (`usescript`/`spawnscript`), and sounds.
 4. MD3 loader (`misc_model_static`, weapons, items) → `ArrayMesh`
 5. **M3 Ghoul2**: `.glm`/`.gla` loader (`code/renderer/mdx_format.h`, `code/ghoul2/G2_bones.cpp` for bone
    decompression), `Skeleton3D`, and `animation.cfg` → `AnimationLibrary`
@@ -45,6 +51,7 @@ continue from here. Branch: `claude/exciting-mendel-ieutjw`.
 
 ## Session log
 
+- 2026-10-05: Map entities: doors, lifts, buttons, triggers, teleporters, jump pads.
 - 2026-10-05: M2 first pass: brush tracing + pmove port; the viewer now spawns a walkable player.
 - 2026-10-04: Switched to Godot 4.7.1 (tests and rendering re-verified).
 - 2026-10-04: Plan written. M0/M1 implemented and tested headless. Autosave script added.

@@ -51,6 +51,8 @@ var plane_surface_flags := PackedInt32Array()
 
 var _grid: Dictionary = {}     # Vector2i -> PackedInt32Array of world (model 0) brushes
 var _dynamic := PackedInt32Array()  # brushes of brush entities, always tested
+var _model_brushes: Dictionary = {}  # bsp model -> PackedInt32Array
+var _model_bounds: Dictionary = {}   # bsp model -> AABB (local space)
 var _stamp := PackedInt32Array()
 var _stamp_id := 0
 ## brushes of these bsp models are skipped (e.g. a disabled trigger)
@@ -64,6 +66,8 @@ static func from_bsp(bsp: RBSPFile, shaders: Q3ShaderLibrary, models: Array = []
 	var w := JACollisionWorld.new()
 	var model_list := models if not models.is_empty() else range(bsp.models.size())
 	for mi in model_list:
+		if mi < 0 or mi >= bsp.models.size():
+			continue
 		var m := bsp.models[mi]
 		for bi in range(m.first_brush, m.first_brush + m.num_brushes):
 			w._add_bsp_brush(bsp, bi, mi)
@@ -183,6 +187,17 @@ func _add_facet(a: Vector3, b: Vector3, c: Vector3, hint: Vector3, contents: int
 func _build_grid() -> void:
 	_grid.clear()
 	_dynamic.clear()
+	_model_brushes.clear()
+	_model_bounds.clear()
+	for i in brush_contents.size():
+		var m := brush_model[i]
+		if not _model_brushes.has(m):
+			_model_brushes[m] = PackedInt32Array()
+			_model_bounds[m] = AABB(brush_mins[i], brush_maxs[i] - brush_mins[i])
+		var list: PackedInt32Array = _model_brushes[m]
+		list.append(i)
+		_model_brushes[m] = list
+		_model_bounds[m] = (_model_bounds[m] as AABB).merge(AABB(brush_mins[i], brush_maxs[i] - brush_mins[i]))
 	for i in brush_contents.size():
 		if brush_model[i] != 0:
 			_dynamic.append(i)
@@ -297,9 +312,10 @@ func box_touches_model(origin: Vector3, mins: Vector3, maxs: Vector3, model: int
 	var s := origin + center - off
 	var bmin := s + size_min
 	var bmax := s + size_max
-	for bi in (_dynamic if model != 0 else range(brush_contents.size())):
-		if brush_model[bi] != model:
-			continue
+	var mb: AABB = _model_bounds.get(model, AABB())
+	if not AABB(bmin, bmax - bmin).intersects(mb.grow(0.01)):
+		return false
+	for bi in _model_brushes.get(model, PackedInt32Array()):
 		if bmin.x > brush_maxs[bi].x or bmin.y > brush_maxs[bi].y or bmin.z > brush_maxs[bi].z \
 				or bmax.x < brush_mins[bi].x or bmax.y < brush_mins[bi].y or bmax.z < brush_mins[bi].z:
 			continue
@@ -312,15 +328,7 @@ func box_touches_model(origin: Vector3, mins: Vector3, maxs: Vector3, model: int
 
 ## Local-space bounds of a bsp model's brushes (absmin/absmax before offset).
 func model_bounds(model: int) -> AABB:
-	var have := false
-	var box := AABB()
-	for bi in brush_contents.size():
-		if brush_model[bi] != model:
-			continue
-		var b := AABB(brush_mins[bi], brush_maxs[bi] - brush_mins[bi])
-		box = b if not have else box.merge(b)
-		have = true
-	return box
+	return _model_bounds.get(model, AABB())
 
 
 static func _offset_for(n: Vector3, size_min: Vector3, size_max: Vector3) -> float:
