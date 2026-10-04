@@ -20,6 +20,8 @@ func set_view(pos: Vector3, yaw_deg: float, pitch_deg: float = 0.0) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not current:
+		return
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
@@ -31,6 +33,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	if not current:
+		return
 	var dir := Vector3.ZERO
 	dir -= basis.z * Input.get_axis("move_back", "move_forward")
 	dir += basis.x * Input.get_axis("move_left", "move_right")

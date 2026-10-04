@@ -26,6 +26,8 @@ func _run() -> void:
 	test_angles()
 	if bsp != null:
 		await test_builder(vfs, lib, bsp)
+		test_collision(lib, bsp)
+		test_pmove(lib, bsp)
 	print("\n%d checks, %d failures" % [_checks, _failures])
 	quit(1 if _failures > 0 else 0)
 
@@ -62,7 +64,7 @@ func test_rbsp(vfs: JAVfs) -> RBSPFile:
 		return null
 	_check(bsp.shaders.size() == 7, "shader lump")
 	_check(bsp.models.size() == 3, "models lump")
-	_check(bsp.brushes.size() == 10, "brush lump")
+	_check(bsp.brushes.size() == 12, "brush lump")
 	_check(bsp.lightmaps.size() == 1, "lightmap lump")
 	_check(bsp.entities.size() == 6, "entity lump")
 	_check(bsp.entities[0].get("message") == "Test map", "worldspawn keys")
@@ -124,7 +126,7 @@ func test_builder(vfs: JAVfs, lib: Q3ShaderLibrary, bsp: RBSPFile) -> void:
 	_check(world.get_child_count() >= 3, "world meshes grouped by material")
 	_check(not world.has_node("textures_test_sky"), "sky surface not drawn")
 	_check(builder.stats["sky_shaders"].has("textures/test/sky"), "sky shader recorded")
-	_check(builder.stats["brushes"] == 10, "all brushes converted")
+	_check(builder.stats["brushes"] == 12, "all brushes converted")
 
 	# triangle winding of every output mesh agrees with its normals
 	var wrong := 0
@@ -185,3 +187,106 @@ func test_builder(vfs: JAVfs, lib: Q3ShaderLibrary, bsp: RBSPFile) -> void:
 func _ray(space: PhysicsDirectSpaceState3D, from: Vector3, to: Vector3, mask: int) -> Dictionary:
 	var q := PhysicsRayQueryParameters3D.create(from, to, mask)
 	return space.intersect_ray(q)
+
+
+func test_collision(lib: Q3ShaderLibrary, bsp: RBSPFile) -> void:
+	var w := JACollisionWorld.from_bsp(bsp, lib)
+	var box_min := Vector3(-16, -16, -24)
+	var box_max := Vector3(16, 16, 40)
+	var tr := w.trace(Vector3(0, -128, 100), Vector3(0, -128, -100), box_min, box_max, JACollisionWorld.MASK_PLAYERSOLID)
+	_check(tr.fraction < 1.0 and _near(tr.endpos.z, 24.0, 0.2) and tr.normal.is_equal_approx(Vector3(0, 0, 1)), "box trace lands on floor (z=%.3f)" % tr.endpos.z)
+	_check(tr.endpos.z > 24.0, "SURFACE_CLIP_EPSILON gap kept")
+	tr = w.trace(Vector3(0, -128, 30), Vector3(1000, -128, 30), box_min, box_max, JACollisionWorld.MASK_PLAYERSOLID)
+	_check(_near(tr.endpos.x, 256 - 16, 0.2) and tr.normal.is_equal_approx(Vector3(-1, 0, 0)), "box trace stops at wall")
+	tr = w.trace(Vector3(0, -128, 10), Vector3(0, -128, 10), box_min, box_max, JACollisionWorld.MASK_PLAYERSOLID)
+	_check(tr.startsolid and tr.allsolid, "box inside floor is allsolid")
+	tr = w.trace(Vector3(0, 128, 100), Vector3(0, 128, -100), Vector3.ZERO, Vector3.ZERO, JACollisionWorld.MASK_PLAYERSOLID)
+	_check(tr.fraction < 1.0 and _near(tr.endpos.z, 16.0, 1.0), "point trace hits patch hump (z=%.2f)" % tr.endpos.z)
+	_check(w.point_contents(Vector3(200, 200, 10)) & JACollisionWorld.CONTENTS_WATER, "point contents: water")
+	tr = w.trace(Vector3(-175, -175, 200), Vector3(-175, -175, 0), box_min, box_max, JACollisionWorld.MASK_PLAYERSOLID)
+	_check(_near(tr.endpos.z, 128 + 24, 0.2), "player clip blocks player box")
+	tr = w.trace(Vector3(-175, -175, 200), Vector3(-175, -175, 0), box_min, box_max, JACollisionWorld.CONTENTS_SOLID)
+	_check(tr.endpos.z < 30, "player clip ignored by solid-only mask")
+
+
+func _sim(pm: JAPmove, ms: int, fwd: int = 0, right: int = 0, up: int = 0, yaw: float = 0.0) -> void:
+	var t := 0
+	while t < ms:
+		var cmd := JAPmove.UserCmd.new()
+		cmd.msec = 16 if t % 50 != 48 else 18
+		cmd.forwardmove = fwd
+		cmd.rightmove = right
+		cmd.upmove = up
+		cmd.viewangles = Vector3(0, yaw, 0)
+		pm.pmove(cmd)
+		t += cmd.msec
+
+
+func test_pmove(lib: Q3ShaderLibrary, bsp: RBSPFile) -> void:
+	var w := JACollisionWorld.from_bsp(bsp, lib, [0])
+	var pm := JAPmove.new(w)
+	pm.origin = Vector3(0, -128, 60)
+	_sim(pm, 1500)
+	_check(pm.on_ground and _near(pm.origin.z, 24.125, 0.1), "falls and lands on floor (z=%.3f)" % pm.origin.z)
+
+	pm.origin = Vector3(-200, -60, 24.125)
+	pm.velocity = Vector3.ZERO
+	_sim(pm, 1000, 127)
+	var hv := Vector2(pm.velocity.x, pm.velocity.y).length()
+	_check(_near(hv, 250.0, 2.0), "runs at g_speed 250 (%.1f)" % hv)
+	_check(absf(pm.origin.y + 60) < 0.01 and pm.origin.x > -200 + 150, "runs along yaw 0 = +X")
+
+	_sim(pm, 1000)
+	_check(Vector2(pm.velocity.x, pm.velocity.y).length() < 1.0, "friction stops the player")
+
+	pm.origin = Vector3(-100, -60, 24.125)
+	pm.velocity = Vector3.ZERO
+	_sim(pm, 50)
+	var top := pm.origin.z
+	var t := 0
+	while t < 1500:
+		var cmd := JAPmove.UserCmd.new()
+		cmd.msec = 10
+		cmd.upmove = 127
+		pm.pmove(cmd)
+		top = maxf(top, pm.origin.z)
+		t += 10
+	var expected := JAPmove.JUMP_VELOCITY * JAPmove.JUMP_VELOCITY / (2.0 * pm.gravity)
+	_check(_near(top - 24.125, expected, 2.0), "jump height %.1f ~ v^2/2g %.1f" % [top - 24.125, expected])
+	_check(pm.on_ground, "lands after jump and does not re-jump while held")
+
+	pm.origin = Vector3(0, -128, 24.125)
+	pm.velocity = Vector3.ZERO
+	_sim(pm, 2000, 127)
+	_check(_near(pm.origin.x, 256 - 16 - 0.125, 0.2), "stops at wall (x=%.2f)" % pm.origin.x)
+
+	pm.origin = Vector3(60, -200, 24.125)
+	pm.velocity = Vector3.ZERO
+	_sim(pm, 400, 127)
+	_check(pm.origin.z > 16 + 24 - 0.5 and pm.origin.x > 100, "steps up a 16-unit step (z=%.2f)" % pm.origin.z)
+
+	pm.origin = Vector3(-200, 0, 24.125)
+	pm.velocity = Vector3.ZERO
+	_sim(pm, 1500, 0, 0, 0, 0.0)
+	_sim(pm, 1500, 127, 0, 0, 90.0)
+	_check(pm.origin.z < 30 and pm.origin.y < 50 - 16 + 0.5, "cannot step a 32-unit block (y=%.2f z=%.2f)" % [pm.origin.y, pm.origin.z])
+
+	pm.origin = Vector3(0, -128, 24.125)
+	_sim(pm, 200, 0, 0, -127)
+	_check(pm.pm_flags & JAPmove.PMF_DUCKED and pm.maxs.z == JAPmove.CROUCH_MAXS_2, "crouch shrinks the box")
+	pm.velocity = Vector3.ZERO
+	_sim(pm, 1000, 127, 0, -127, 180.0)
+	var chv := Vector2(pm.velocity.x, pm.velocity.y).length()
+	_check(_near(chv, 125.0, 2.0), "crouch speed is half (%.1f)" % chv)
+	_sim(pm, 200)
+	_check(not (pm.pm_flags & JAPmove.PMF_DUCKED), "stands up again")
+
+	pm.origin = Vector3(200, 200, 24.125)
+	pm.velocity = Vector3.ZERO
+	_sim(pm, 100)
+	_check(pm.waterlevel >= 1, "water level detected (%d)" % pm.waterlevel)
+
+	pm.origin = Vector3(-60, 128, 80)
+	pm.velocity = Vector3.ZERO
+	_sim(pm, 1500)
+	_check(pm.on_ground and pm.origin.z > 24.125 + 10.0, "stands on the curved patch (z=%.2f)" % pm.origin.z)

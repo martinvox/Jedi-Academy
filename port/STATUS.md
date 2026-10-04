@@ -14,6 +14,10 @@ continue from here. Branch: `claude/exciting-mendel-ieutjw`.
 - [x] Skybox (`skyparms env/x`), using the face mapping derived from `tr_sky.cpp` `MakeSkyVec`
 - [x] Map viewer (setup panel, map list, free-fly camera, `--screenshot`, `--view`)
 - [x] Tests: 50 headless checks on a synthetic map. Rendering checked with Xvfb + OpenGL.
+- [x] **M2 movement (first pass)**: `JACollisionWorld` is an exact port of `CM_TraceThroughBrush`/`CM_TestBoxInBrush`, with
+      patches as thin facet brushes. `JAPmove` ports walk/air/water/ladder movement, friction, acceleration,
+      PM_SlideMove/PM_StepSlideMove (g_stepSlideFix 1), the ground trace, ducking, the normal jump and landing timers.
+      `JAPlayer` adds input, a fixed tick with interpolation, and 1st/3rd-person cameras. Covered by 22 movement/collision tests.
 - [x] Performance: a retail-sized synthetic map (50k surfaces, 10k brushes) parses and builds in about 2 s in GDScript
 
 ## Needs checking on real game data (cannot be done in the cloud session)
@@ -30,8 +34,9 @@ continue from here. Branch: `claude/exciting-mendel-ieutjw`.
 1. Fix whatever real maps turn up (see above).
 2. Shader improvements: multi-stage blending (lightmap + detail + glow), `rgbGen`/`alphaGen` waves,
    `tcMod rotate/turb/stretch`, `deformVertexes wave/autosprite`, animMap animation, environment maps.
-3. **M2 Player movement**: port `code/game/bg_pmove.cpp` + `bg_slidemove.cpp` to a kinematic body that uses
-   shape casts as `trace()`. Use a fixed-tick `_physics_process`. Add a third-person camera.
+3. **M2 movement, remaining**: force jump (hold jump, `forceJumpHeight`/`forceJumpStrength`), flips, wall runs,
+   rolls, water jump, falling damage, movers (doors), and triggers (`trigger_push`, `trigger_teleport`).
+   Compare the feel against OpenJK side by side.
 4. MD3 loader (`misc_model_static`, weapons, items) → `ArrayMesh`
 5. **M3 Ghoul2**: `.glm`/`.gla` loader (`code/renderer/mdx_format.h`, `code/ghoul2/G2_bones.cpp` for bone
    decompression), `Skeleton3D`, and `animation.cfg` → `AnimationLibrary`
@@ -40,6 +45,7 @@ continue from here. Branch: `claude/exciting-mendel-ieutjw`.
 
 ## Session log
 
+- 2026-10-05: M2 first pass: brush tracing + pmove port; the viewer now spawns a walkable player.
 - 2026-10-04: Switched to Godot 4.7.1 (tests and rendering re-verified).
 - 2026-10-04: Plan written. M0/M1 implemented and tested headless. Autosave script added.
   The container restarted once (OOM from a test generator, now fixed); no work was lost.

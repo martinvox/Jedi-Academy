@@ -30,8 +30,10 @@ git checkout claude/exciting-mendel-ieutjw
    `base`) or click **Browse...**, then **Load**.
 4. Double-click a map (`mp/ffa_bespin`, `t1_sour`, ...).
 
-Controls: left-click captures the mouse, **WASD** moves, **Space/C** go up/down,
-**Shift** is faster, **Esc** releases the mouse, **Tab** returns to the map list.
+You spawn at the map's start point and walk with the ported Jedi Academy movement:
+**WASD** move, **Space** jump, **C** crouch, **Shift** walk, mouse look,
+**T** first/third person, **V** noclip, **F** free-fly camera (Space/C up/down, Shift fast),
+**Esc** releases the mouse, **Tab** returns to the map list.
 
 From a terminal (the path is remembered after the first run):
 
@@ -68,6 +70,9 @@ port/godot/src/world/ja_materials.gd        shader defs -> Godot materials
 port/godot/src/world/bezier_patch.gd        curved surface tessellation
 port/godot/src/world/ja_environment.gd      skybox / environment
 port/godot/src/world/ja_coords.gd           Quake <-> Godot coordinate conversion
+port/godot/src/physics/ja_collision_world.gd box traces vs brushes (port of cm_trace.cpp)
+port/godot/src/physics/ja_pmove.gd           player movement (port of bg_pmove.cpp / bg_slidemove.cpp)
+port/godot/src/player/ja_player.gd           input -> usercmd, fixed tick, 1st/3rd person camera
 port/godot/src/viewer/                      map viewer + free-fly camera
 port/tools/make_test_map.py                 synthetic test data generator
 port/tools/autosave.sh                      periodic commit+push while working

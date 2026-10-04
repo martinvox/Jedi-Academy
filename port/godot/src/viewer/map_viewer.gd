@@ -1,5 +1,7 @@
 extends Node3D
-## Milestone 1 map viewer.
+## Map viewer / walk test (milestones 1-2).
+## After loading, you walk the map with the ported player movement; F toggles
+## the free-fly camera, T first/third person, V noclip, Tab the map list.
 ##
 ## Command line (after "--"):
 ##   --gamedata=<path to GameData>   folder that contains "base"
@@ -20,6 +22,9 @@ const CONFIG_PATH := "user://ja_port.cfg"
 var vfs: JAVfs
 var shaders: Q3ShaderLibrary
 var map_root: Node3D
+var player: JAPlayer
+var collision: JACollisionWorld
+var _status_text := ""
 var _setup: Control
 var _args := {}
 
@@ -40,8 +45,28 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and event.keycode == KEY_TAB and vfs != null:
+	if not (event is InputEventKey and event.pressed and not event.echo):
+		return
+	if event.keycode == KEY_TAB and vfs != null:
 		_show_setup(_current_gamedata())
+	elif event.keycode == KEY_F and player != null:
+		_set_fly_mode(not camera.current)
+
+
+func _set_fly_mode(fly: bool) -> void:
+	if fly:
+		camera.global_transform = player.camera.global_transform
+		var e := camera.global_basis.get_euler()
+		camera.set_view(camera.global_position, rad_to_deg(e.y) + 90.0, -rad_to_deg(e.x))
+		camera.make_current()
+	else:
+		player.make_current()
+
+
+func _process(_delta: float) -> void:
+	if player != null and _setup == null:
+		var mode := "fly camera (F to walk)" if camera.current else ("walking" + ("  noclip" if player.pm.noclip else ""))
+		hud.text = _status_text + "\n" + mode + "  |  " + player.debug_text()
 
 
 func _parse_args(args: PackedStringArray) -> Dictionary:
@@ -107,11 +132,18 @@ func _load_map(name: String) -> void:
 	add_child(map_root)
 	world_env.environment = JAEnvironment.create(vfs, shaders, builder.stats["sky_shaders"])
 	_place_camera(bsp)
+	var t3 := Time.get_ticks_msec()
+	collision = JACollisionWorld.from_bsp(bsp, shaders, solid_models(bsp))
+	print("collision world: %d brushes (%d ms)" % [collision.brush_count(), Time.get_ticks_msec() - t3])
+	_spawn_player(bsp)
+	if _args.has("view"):
+		_set_fly_mode(true)
 
 	var s := builder.stats
-	hud.text = "%s  |  %d tris, %d materials, %d brushes, %d entities, %d missing textures\nparse %d ms, build %d ms  |  click: mouse look, WASD/Space/C, Shift fast, Tab: map list" % [
+	_status_text = "%s  |  %d tris, %d materials, %d brushes, %d entities, %d missing textures, parse %d ms, build %d ms\nWASD move, Space jump, C crouch, Shift walk, T 1st/3rd person, V noclip, F fly camera, Tab maps, Esc mouse" % [
 		path, s["triangles"], s["materials"], s["brushes"], s["entities"], s["missing_textures"], t1 - t0, t2 - t1]
-	print(hud.text)
+	hud.text = _status_text
+	print(_status_text)
 	print("stats: ", s)
 	if builder.materials.missing_textures.size() > 0:
 		print("missing textures (first 20): ", builder.materials.missing_textures.slice(0, 20))
@@ -124,6 +156,39 @@ func _load_map(name: String) -> void:
 		print("screenshot saved to ", _args["screenshot"])
 	if _args.has("quit-after-load") or _args.has("screenshot"):
 		get_tree().quit(0)
+
+
+## bsp models the player collides with: the world and every brush entity
+## except triggers (doors start closed until movers are ported).
+static func solid_models(bsp: RBSPFile) -> Array:
+	var models := [0]
+	for ent in bsp.entities:
+		var m: String = ent.get("model", "")
+		var cls: String = ent.get("classname", "")
+		if m.begins_with("*") and not cls.begins_with("trigger_"):
+			models.append(m.substr(1).to_int())
+	return models
+
+
+func _spawn_point(bsp: RBSPFile) -> Array:
+	for cls in ["info_player_start", "info_player_deathmatch", "info_player_duel", "info_player_intermission"]:
+		for ent in bsp.entities:
+			if ent.get("classname") == cls and ent.has("origin"):
+				return [JACoords.parse_vec3(ent["origin"]), JACoords.entity_angles(ent).y]
+	var m := bsp.models[0]
+	return [(m.mins + m.maxs) * 0.5, 0.0]
+
+
+func _spawn_player(bsp: RBSPFile) -> void:
+	if player != null:
+		player.queue_free()
+	player = JAPlayer.new()
+	player.name = "Player"
+	add_child(player)
+	var sp := _spawn_point(bsp)
+	# SelectSpawnPoint raises the origin 9 units so the box does not start in the floor
+	player.setup(collision, sp[0] + Vector3(0, 0, 9), sp[1])
+	player.make_current()
 
 
 func _place_camera(bsp: RBSPFile) -> void:

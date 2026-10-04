@@ -267,6 +267,8 @@ def build(out_dir):
     b.box_brush((-R, -R - T, 0), (R, -R, H), sh_glass)
     b.box_brush((-200, -200, 0), (-150, -150, 128), sh_clip)
     b.box_brush((150, 150, 0), (250, 250, 32), sh_water)
+    b.box_brush((100, -250, 0), (160, -150, 16), sh_wall)   # step: below STEPSIZE (18)
+    b.box_brush((-250, 50, 0), (-150, 150, 32), sh_wall)    # block: too high to step
     b.models.append(((-R - T, -R - T, -T), (R + T, R + T, H + T), first_surface, world_surfs,
                      first_brush, len(b.brushes) - first_brush))
 
